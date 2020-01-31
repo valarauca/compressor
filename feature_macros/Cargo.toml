@@ -1,0 +1,27 @@
+[package]
+name = "feature_macros"
+version = "0.1.0"
+authors = ["William Laeder <codylaeder@gmail.com>"]
+edition = "2015"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+rustc_version = "0.2"
+
+[dependencies]
+
+[features]
+default = []
+ub_unreachable = []
+unbounded = []
+branch_hints = []
+prefetch_hints = []
+prefetch = []
+RUSTC_DEV = []
+RUSTC_NIGHTLY = []
+RUSTC_BETA = []
+RUSTC_STABLE = []
+RUSTC_VERSION_GE_1_27 = []
+RUSTC_VERSION_GE_1_26 = []

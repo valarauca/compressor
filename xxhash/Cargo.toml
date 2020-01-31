@@ -1,0 +1,20 @@
+[package]
+name = "xxhash"
+version = "0.1.0"
+authors = ["William Laeder <codylaeder@gmail.com>"]
+edition = "2015"
+
+
+[dependencies]
+feature_macros = { path = "../feature_macros", default_features = false }
+
+[dev-dependencies]
+twox-hash = { version = "=1.5.0", default_features = false }
+getrandom = { version = "=0.1.14", default_features = false }
+
+[features]
+default = []
+ub_unreachable = ["feature_macros/ub_unreachable"]
+unbounded = ["feature_macros/unbounded"]
+branch_hints = ["feature_macros/branch_hints"]
+prefetch_hints = ["feature_macros/prefetch_hints"]
