@@ -3,7 +3,11 @@ use super::feature_macros::numbers::{Num, PrimativeNumber};
 use super::feature_macros::prefetch::prefetch_buffer;
 
 #[cfg(not(feature = "std"))]
+use core::cmp::min;
+#[cfg(not(feature = "std"))]
 use core::hash::Hasher;
+#[cfg(feature = "std")]
+use std::cmp::min;
 #[cfg(feature = "std")]
 use std::hash::Hasher;
 
@@ -53,7 +57,7 @@ fn xxh32_finalize(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
     #[inline(always)]
     fn fold_chunk(hash: Num<u32>, arg: &[u8]) -> Num<u32> {
         let length = arg.len();
-        assert!(
+        debug_assert!(
             length <= 4 && length > 0,
             "length can only ever be 4, 3, 2, or 1"
         );
@@ -90,7 +94,7 @@ fn xxh32_reference(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
     /// mechanicism.
     #[inline(always)]
     fn interior_round(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
-        assert!(buffer.len() == 4, "buffer should always be 4 elements");
+        debug_assert!(buffer.len() == 4, "buffer should always be 4 elements");
         xxh32_round(seed, Num::<u32>::read_value_le(buffer))
     }
 
@@ -98,7 +102,7 @@ fn xxh32_reference(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
     // at a time.
     #[inline(always)]
     fn big_chunk(v: [Num<u32>; 4], chunk: &[u8]) -> [Num<u32>; 4] {
-        assert!(chunk.len() == 16);
+        debug_assert!(chunk.len() == 16);
         [
             interior_round(v[0], &chunk[0..4]),
             interior_round(v[1], &chunk[4..8]),
@@ -186,8 +190,8 @@ impl XXHash32 {
         }
     }
 
-    fn perform_finish(&mut self) -> u32 {
-        assert!(self.interior_length <= 16);
+    fn perform_finish(&self) -> u32 {
+        debug_assert!(self.interior_length <= 16);
 
         let hash = if self.total_length >= 16 {
             self.state[0]
@@ -208,18 +212,68 @@ impl XXHash32 {
         .inner()
     }
 
-    fn copy_into_internal(&mut self, slice: &[u8]) {
-        assert!(self.interior_length < 16);
-        assert!(slice.len() <= 16);
-        assert!((self.interior_length + slice.len()) <= 16);
-
-        unsafe {
-            memcp(
-                slice.as_ptr(),
-                (&mut self.interior_buffer[self.interior_length..]).as_mut_ptr(),
-                slice.len(),
-            );
+    // attempts to consume the input to flush our internal buffer
+    fn maybe_consume<'a>(&mut self, slice: &'a [u8]) -> &'a [u8] {
+        if self.is_empty() || slice.is_empty() {
+            slice
+        } else {
+            let minimum = min(slice.len(), self.avaliable());
+            let (process, remaining) = slice.split_at(minimum);
+            self.copy_into_internal(process);
+            self.maybe_consume(remaining)
         }
+    }
+
+    fn consume<'a>(&mut self, arg: &'a [u8]) {
+        let fold_lambda = |([v1, v2, v3, v4], _, len): ([Num<u32>; 4], Option<&'a [u8]>, usize),
+                           chunk: &'a [u8]|
+         -> ([Num<u32>; 4], Option<&'a [u8]>, usize) {
+            if chunk.len() == 16 {
+                (
+                    [
+                        xxh32_round(v1, Num::<u32>::read_value_le(&chunk[0..4])),
+                        xxh32_round(v2, Num::<u32>::read_value_le(&chunk[4..8])),
+                        xxh32_round(v3, Num::<u32>::read_value_le(&chunk[8..12])),
+                        xxh32_round(v4, Num::<u32>::read_value_le(&chunk[12..16])),
+                    ],
+                    None,
+                    len + 16,
+                )
+            } else {
+                ([v1, v2, v3, v4], Some(chunk), len)
+            }
+        };
+        let folder_state = (
+            [self.state[0], self.state[1], self.state[2], self.state[3]],
+            None,
+            0,
+        );
+        let ([v1, v2, v3, v4], leftover, len) = self
+            .maybe_consume(arg)
+            .chunks(16)
+            .fold(folder_state, fold_lambda);
+        self.total_length += len;
+        self.state[0] = v1;
+        self.state[1] = v2;
+        self.state[2] = v3;
+        self.state[3] = v4;
+        match leftover {
+            Option::Some(leftover) => {
+                self.copy_into_internal(leftover);
+            }
+            _ => {}
+        };
+    }
+
+    #[inline(always)]
+    fn copy_into_internal(&mut self, slice: &[u8]) {
+        debug_assert!(self.interior_length < 16);
+        debug_assert!(slice.len() <= 16);
+        debug_assert!((self.interior_length + slice.len()) <= 16);
+
+        let start = self.interior_length;
+        let term = start + slice.len();
+        (&mut self.interior_buffer[start..term]).copy_from_slice(slice);
 
         self.interior_length += slice.len();
         self.total_length += slice.len();
@@ -242,31 +296,27 @@ impl XXHash32 {
                 Num::<u32>::read_value_le(&self.interior_buffer[12..16]),
             );
             self.interior_length = 0;
-            self.interior_buffer = [0u8; 16];
         }
+    }
+
+    #[inline]
+    fn avaliable(&self) -> usize {
+        16 - self.interior_length
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.interior_length == 0
     }
 }
 impl Hasher for XXHash32 {
     #[inline]
     fn write(&mut self, data: &[u8]) {
-        let mut slice = &data[0..];
-        loop {
-            if (slice.len() + self.interior_length) <= 16 {
-                self.copy_into_internal(slice);
-                return;
-            } else {
-                let remaining = 16 - self.interior_length;
-                assert!(remaining != 0);
-                assert!(slice.len() > remaining);
-                self.copy_into_internal(&slice[0..remaining]);
-                slice = &slice[remaining..];
-            }
-        }
+        self.consume(data);
     }
 
     fn finish(&self) -> u64 {
-        let mut state = self.clone();
-        state.perform_finish() as u64
+        self.perform_finish() as u64
     }
 }
 
