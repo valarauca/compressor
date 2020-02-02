@@ -1,13 +1,9 @@
-use super::feature_macros::intrinsics::{hint_likely, memcp};
+use super::feature_macros::intrinsics::hint_likely;
 use super::feature_macros::numbers::{Num, PrimativeNumber};
 use super::feature_macros::prefetch::prefetch_buffer;
 
 #[cfg(not(feature = "std"))]
-use core::cmp::min;
-#[cfg(not(feature = "std"))]
 use core::hash::Hasher;
-#[cfg(feature = "std")]
-use std::cmp::min;
 #[cfg(feature = "std")]
 use std::hash::Hasher;
 
@@ -212,64 +208,59 @@ impl XXHash32 {
         .inner()
     }
 
-    // attempts to consume the input to flush our internal buffer
-    fn maybe_consume<'a>(&mut self, slice: &'a [u8]) -> &'a [u8] {
-        if self.is_empty() || slice.is_empty() {
-            slice
+    /// all the conditional branching.
+    #[inline(always)]
+    fn maybe_consume<'a>(&mut self, slice: &'a [u8]) -> Option<&'a [u8]> {
+        if !self.is_empty() {
+            if slice.len() < self.avaliable() {
+                self.copy_into_internal(slice);
+                None
+            } else {
+                let (flush_internal, remaining) = slice.split_at(self.avaliable());
+                self.copy_into_internal(flush_internal);
+                debug_assert!(self.is_empty());
+                if remaining.is_empty() {
+                    None
+                } else {
+                    Some(remaining)
+                }
+            }
         } else {
-            let minimum = min(slice.len(), self.avaliable());
-            let (process, remaining) = slice.split_at(minimum);
-            self.copy_into_internal(process);
-            self.maybe_consume(remaining)
+            Some(slice)
         }
     }
 
+    #[inline]
     fn consume<'a>(&mut self, arg: &'a [u8]) {
-        let fold_lambda = |([v1, v2, v3, v4], _, len): ([Num<u32>; 4], Option<&'a [u8]>, usize),
-                           chunk: &'a [u8]|
-         -> ([Num<u32>; 4], Option<&'a [u8]>, usize) {
-            if chunk.len() == 16 {
-                (
-                    [
-                        xxh32_round(v1, Num::<u32>::read_value_le(&chunk[0..4])),
-                        xxh32_round(v2, Num::<u32>::read_value_le(&chunk[4..8])),
-                        xxh32_round(v3, Num::<u32>::read_value_le(&chunk[8..12])),
-                        xxh32_round(v4, Num::<u32>::read_value_le(&chunk[12..16])),
-                    ],
-                    None,
-                    len + 16,
-                )
-            } else {
-                ([v1, v2, v3, v4], Some(chunk), len)
+        for remaining_data in self.maybe_consume(arg) {
+            for chunk in remaining_data.chunks(16) {
+                if chunk.len() == 16 {
+                    self.state[0] =
+                        xxh32_round(self.state[0], Num::<u32>::read_value_le(&chunk[0..4]));
+                    self.state[1] =
+                        xxh32_round(self.state[1], Num::<u32>::read_value_le(&chunk[4..8]));
+                    self.state[2] =
+                        xxh32_round(self.state[2], Num::<u32>::read_value_le(&chunk[8..12]));
+                    self.state[3] =
+                        xxh32_round(self.state[3], Num::<u32>::read_value_le(&chunk[12..16]));
+                    self.total_length += 16;
+                } else {
+                    self.copy_into_internal(chunk);
+                }
             }
-        };
-        let folder_state = (
-            [self.state[0], self.state[1], self.state[2], self.state[3]],
-            None,
-            0,
-        );
-        let ([v1, v2, v3, v4], leftover, len) = self
-            .maybe_consume(arg)
-            .chunks(16)
-            .fold(folder_state, fold_lambda);
-        self.total_length += len;
-        self.state[0] = v1;
-        self.state[1] = v2;
-        self.state[2] = v3;
-        self.state[3] = v4;
-        match leftover {
-            Option::Some(leftover) => {
-                self.copy_into_internal(leftover);
-            }
-            _ => {}
-        };
+        }
     }
 
+    /// handle messy small writes to the internal buffer.
     #[inline(always)]
     fn copy_into_internal(&mut self, slice: &[u8]) {
         debug_assert!(self.interior_length < 16);
         debug_assert!(slice.len() <= 16);
         debug_assert!((self.interior_length + slice.len()) <= 16);
+
+        if slice.is_empty() {
+            return;
+        }
 
         let start = self.interior_length;
         let term = start + slice.len();
@@ -310,8 +301,9 @@ impl XXHash32 {
     }
 }
 impl Hasher for XXHash32 {
-    #[inline]
+    #[inline(never)]
     fn write(&mut self, data: &[u8]) {
+        if !self.is_empty() {}
         self.consume(data);
     }
 
@@ -349,4 +341,27 @@ fn xxh32_sanity_test() {
     assert_eq!(baseline_output, reference_output);
     assert_eq!(streaming_output, reference_output);
     assert_eq!(baseline_output, streaming_output);
+}
+
+#[test]
+fn xxh32_matches_c_for_empty_inputs() {
+    /*
+     * credit to: Jake Goulding & Collaborators of twox_hash, copyright
+     * unchallenged.
+     *
+     */
+    let mut hasher = XXHash32::with_seed(0);
+    hasher.write(&[]);
+    let expected = 0x02CC5D05u32;
+    assert_eq!(expected, hasher.finish() as u32);
+    assert_eq!(expected, xxh32_reference(Num::from(0), &[]).inner());
+}
+
+#[test]
+fn xxh32_matches_c_for_single_byte() {
+    let mut hasher = XXHash32::with_seed(0);
+    hasher.write(&[42]);
+    let expected = 0xE0FE705Fu32;
+    assert_eq!(expected, hasher.finish() as u32);
+    assert_eq!(expected, xxh32_reference(Num::from(0), &[42]).inner());
 }
