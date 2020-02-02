@@ -13,7 +13,8 @@ rustc_version = "0.2"
 [dependencies]
 
 [features]
-default = []
+default = ["std"]
+std = []
 ub_unreachable = []
 unbounded = []
 branch_hints = []

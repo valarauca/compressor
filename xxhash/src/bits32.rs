@@ -1,10 +1,16 @@
-use super::feature_macros::intrinsics::{hint_likely, hint_unlikely};
+use super::feature_macros::intrinsics::{hint_likely, memcp};
 use super::feature_macros::numbers::{Num, PrimativeNumber};
 use super::feature_macros::prefetch::prefetch_buffer;
+
+#[cfg(not(feature = "std"))]
 use core::hash::Hasher;
-use core::iter::{FlatMap, Zip};
-use core::ptr::copy_nonoverlapping;
-use core::slice::{from_raw_parts, Chunks, IterMut};
+#[cfg(feature = "std")]
+use std::hash::Hasher;
+
+#[cfg(not(feature = "std"))]
+use core::slice::from_raw_parts;
+#[cfg(feature = "std")]
+use std::slice::from_raw_parts;
 
 const PRIME32_1: u32 = 2654435761u32;
 const PRIME32_2: u32 = 2246822519u32;
@@ -125,7 +131,7 @@ fn xxh32_reference(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
             .wrapping_add(buffer.len() as u32)
     };
     // weird modulus operation to get the last ~15 bytes of the buffer
-    let last = buffer.len() & (::core::usize::MAX - 15usize);
+    let last = buffer.len() & (<Num<usize> as PrimativeNumber>::max() - 15usize);
     xxh32_finalize(hash, &buffer[last..])
 }
 
@@ -139,13 +145,12 @@ pub fn xxhash32_reference(seed: u32, buffer: &[u8]) -> u32 {
 #[no_mangle]
 #[inline(never)]
 pub unsafe extern "C" fn xxhash32_ffi(seed: u32, ptr: *const u8, len: usize) -> u32 {
-    #[allow(unused_imports)]
-    use core::slice::from_raw_parts;
     xxh32_reference(Num::from(seed), from_raw_parts(ptr, len)).inner()
 }
 
 /// XXHash32 is an implementation of two-x hash.
 /// this structure offers a streaming implementation
+#[derive(Clone)]
 pub struct XXHash32 {
     interior_length: usize,
     total_length: usize,
@@ -181,24 +186,9 @@ impl XXHash32 {
         }
     }
 
-    /// for streaming operations we need to do this 1 byte at a time
-    fn append_byte(&mut self, byte: u8) {
-        // if we append the last byte, we'll process
-        assert!(self.interior_length <= 15);
-
-        self.interior_buffer[self.interior_length] = byte;
-
-        // update counters
-        self.interior_length += 1;
-        self.total_length += 1;
-
-        // conditionally flush state
-        if self.interior_length == 16 {
-            self.preform_round();
-        }
-    }
-
     fn perform_finish(&mut self) -> u32 {
+        assert!(self.interior_length <= 16);
+
         let hash = if self.total_length >= 16 {
             self.state[0]
                 .rotate_left(1)
@@ -211,7 +201,6 @@ impl XXHash32 {
                 .wrapping_add(PRIME32_5)
                 .wrapping_add(self.total_length as u32)
         };
-        assert!(self.interior_length <= 16);
         xxh32_finalize(
             Num::<u32>::from(hash),
             &self.interior_buffer[0..self.interior_length],
@@ -219,103 +208,66 @@ impl XXHash32 {
         .inner()
     }
 
-    /// consumes the `interior_buffer` worth of data.
-    fn preform_round(&mut self) {
-        if hint_unlikely(self.interior_length != 16) {
-            inconceivable!("perform_round should only be called when internal buffer is full");
+    fn copy_into_internal(&mut self, slice: &[u8]) {
+        assert!(self.interior_length < 16);
+        assert!(slice.len() <= 16);
+        assert!((self.interior_length + slice.len()) <= 16);
+
+        unsafe {
+            memcp(
+                slice.as_ptr(),
+                (&mut self.interior_buffer[self.interior_length..]).as_mut_ptr(),
+                slice.len(),
+            );
         }
 
-        // preform our round
-        for (state, chunk) in self.state.iter_mut().zip(self.interior_buffer.chunks(4)) {
-            *state = mixin_bytes(*state, chunk);
+        self.interior_length += slice.len();
+        self.total_length += slice.len();
+
+        if self.interior_length == 16 {
+            self.state[0] = xxh32_round(
+                self.state[0],
+                Num::<u32>::read_value_le(&self.interior_buffer[0..4]),
+            );
+            self.state[1] = xxh32_round(
+                self.state[1],
+                Num::<u32>::read_value_le(&self.interior_buffer[4..8]),
+            );
+            self.state[2] = xxh32_round(
+                self.state[2],
+                Num::<u32>::read_value_le(&self.interior_buffer[8..12]),
+            );
+            self.state[3] = xxh32_round(
+                self.state[3],
+                Num::<u32>::read_value_le(&self.interior_buffer[12..16]),
+            );
+            self.interior_length = 0;
+            self.interior_buffer = [0u8; 16];
         }
-
-        // clean up the interior state
-        self.interior_length = 0;
-        self.interior_buffer = [0u8; 16];
-    }
-
-    /// explict borrowing methods
-    #[inline(always)]
-    fn state_borrow<'a>(&'a mut self) -> IterMut<'a, Num<u32>> {
-        self.state.iter_mut()
-    }
-
-    /// another explit borrowing method
-    #[inline(always)]
-    fn state_merge_16<'a, 'b>(
-        &'b mut self,
-        arg: &'a [u8],
-    ) -> Zip<Chunks<'a, u8>, IterMut<'b, Num<u32>>> {
-        if hint_unlikely(arg.len() != 16) {
-            inconceivable!("state_merge input should always be 16 bytes long");
-        }
-        arg.chunks(4).zip(self.state_borrow())
-    }
-
-    /// another explicit borrowing method
-    #[inline(always)]
-    fn state_merge_mod_16<'a, 'b>(
-        &'b mut self,
-        arg: &'a [u8],
-    ) -> FlatMap<
-        Chunks<'a, u8>,
-        Zip<Chunks<'a, u8>, IterMut<'b, Num<u32>>>,
-        <XXHash32 as Trait>::state_merge_16,
-    > {
-        arg.chunks(16).flat_map(|chunk| self.state_merge_16(chunk))
     }
 }
 impl Hasher for XXHash32 {
+    #[inline]
     fn write(&mut self, data: &[u8]) {
-        if hint_unlikely(self.interior_length >= 16) {
-            inconceivable!("this function cannot be called when a round should be performed");
+        let mut slice = &data[0..];
+        loop {
+            if (slice.len() + self.interior_length) <= 16 {
+                self.copy_into_internal(slice);
+                return;
+            } else {
+                let remaining = 16 - self.interior_length;
+                assert!(remaining != 0);
+                assert!(slice.len() > remaining);
+                self.copy_into_internal(&slice[0..remaining]);
+                slice = &slice[remaining..];
+            }
         }
-
-        // case 1: virgin internal state & nice aligned data
-        //         this case is overly optimized as it doesnt
-        //         require mutating internal state.
-        if hint_unlikely(
-            (self.interior_length == 0) && (data.len() > 16) && ((data.len() & 0x0Fusize) == 0),
-        ) {
-            if hint_unlikely(data.len() <= 16) {
-                inconceivable!("this should only be reachable by values >= 16");
-            }
-            if hint_unlikely((data.len() % 16) != 0) {
-                inconceivable!("data should be nicely divisable by 16");
-            }
-            for (chunk, state) in data
-                .chunks(16)
-                .flat_map(|chunk| chunk.chunks(4).zip(self.state.iter_mut()))
-            {
-                if hint_unlikely(chunk.len() != 4) {
-                    inconceivable!("input is nicely divisable by 16, so WTF?");
-                }
-                *state = mixin_bytes(*state, chunk);
-            }
-            self.total_length += data.len();
-            // as our input is cleanly divisable by 16
-            // we do not need to update `interior_length`
-            return;
-        }
-        unreachable!()
     }
 
-    fn finish(&mut self) -> u64 {
-        self.perform_finish() as u64
+    fn finish(&self) -> u64 {
+        let mut state = self.clone();
+        state.perform_finish() as u64
     }
-}
-
-#[inline(always)]
-fn mix_in(seed: Num<u32>, input: Num<u32>) -> Num<u32> {
-    seed.wrapping_add(input.wrapping_mul(PRIME32_2))
-        .rotate_left(13)
-        .wrapping_mul(PRIME32_1)
-}
-
-#[inline(always)]
-fn mixin_bytes(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
-    mix_in(seed, Num::<u32>::read_value_le(buffer))
 }
 
 /// This test mostly exists to ensure that our implementation is correct
@@ -336,7 +288,15 @@ fn xxh32_sanity_test() {
     baseline_hasher.write(core_data.as_ref());
     let baseline_output = baseline_hasher.finish() as u32;
 
+    // internal streaming impl
+    let mut streaming_hasher = XXHash32::with_seed(seed);
+    streaming_hasher.write(core_data.as_ref());
+    let streaming_output = streaming_hasher.finish() as u32;
+
+    // internal reference impl
     let reference_output = xxh32_reference(Num::from(seed), core_data.as_ref()).inner();
 
     assert_eq!(baseline_output, reference_output);
+    assert_eq!(streaming_output, reference_output);
+    assert_eq!(baseline_output, streaming_output);
 }

@@ -1,8 +1,24 @@
+#[cfg(not(feature = "std"))]
 use core::hash::Hash;
+#[cfg(feature = "std")]
+use std::hash::Hash;
+
+#[cfg(not(feature = "std"))]
 use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
     ShrAssign,
 };
+#[cfg(not(feature = "std"))]
+use core::ptr::{read, read_unaligned};
+#[cfg(feature = "std")]
+use std::ops::{
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
+    ShrAssign,
+};
+#[cfg(feature = "std")]
+use std::ptr::{read, read_unaligned};
+
+use super::mem::{align_of, size_of, transmute};
 
 /// Num wraps a primative value.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -329,6 +345,9 @@ pub trait PrimativeNumber:
         + ShrAssign<i32>
         + ShlAssign<i32>;
 
+    fn max() -> Self::Primative;
+    fn min() -> Self::Primative;
+
     /// destroys value, returns interior
     fn inner(self) -> Self::Primative;
 
@@ -400,9 +419,6 @@ pub trait PrimativeNumber:
 
         #[cfg(any(target_arch = "x86", target_arch = "powerpc64", target_arch = "x86_64"))]
         {
-            #[allow(unused_imports)]
-            use core::mem::size_of;
-
             if size_of::<Self::Primative>() >= 16 {
                 // no platform handles SIMD size loads well
                 Self::from(alignment_matters_load::<Self::Primative>(arg))
@@ -439,7 +455,6 @@ pub trait PrimativeNumber:
 #[allow(dead_code)]
 #[inline(always)]
 fn is_aligned<T: Copy>(arg: *const u8) -> bool {
-    use core::mem::{align_of, transmute};
     let address: usize = unsafe { transmute(arg) };
     (address & (align_of::<T>() - 1usize)) == 0
 }
@@ -449,11 +464,6 @@ fn is_aligned<T: Copy>(arg: *const u8) -> bool {
 #[allow(dead_code)]
 #[inline(always)]
 fn alignment_matters_load<T: Copy>(arg: &[u8]) -> T {
-    #[allow(unused_imports)]
-    use core::mem::{size_of, transmute};
-    #[allow(unused_imports)]
-    use core::ptr::{read, read_unaligned};
-
     #[cfg(not(feature = "unbound"))]
     {
         if arg.len() < size_of::<T>() {
@@ -475,11 +485,6 @@ fn alignment_matters_load<T: Copy>(arg: &[u8]) -> T {
 #[allow(dead_code)]
 #[inline(always)]
 fn screw_alignment_load<T: Copy>(arg: &[u8]) -> T {
-    #[allow(unused_imports)]
-    use core::mem::{size_of, transmute};
-    #[allow(unused_imports)]
-    use core::ptr::read;
-
     #[cfg(not(feature = "unbound"))]
     {
         if arg.len() < size_of::<T>() {
@@ -491,13 +496,33 @@ fn screw_alignment_load<T: Copy>(arg: &[u8]) -> T {
 }
 
 macro_rules! implement_primative_number {
-    ($kind: ty) => {
+    ($kind: ident) => {
         impl PrimativeNumber for Num<$kind> {
             type Primative = $kind;
 
             #[inline(always)]
             fn inner(self) -> $kind {
                 self.data
+            }
+
+            #[inline(always)]
+            fn max() -> $kind {
+                #[cfg(not(feature = "std"))]
+                use core::$kind::MAX;
+                #[cfg(feature = "std")]
+                use std::$kind::MAX;
+
+                MAX
+            }
+
+            #[inline(always)]
+            fn min() -> $kind {
+                #[cfg(not(feature = "std"))]
+                use core::$kind::MIN;
+                #[cfg(feature = "std")]
+                use std::$kind::MIN;
+
+                MIN
             }
 
             #[inline(always)]
@@ -556,6 +581,8 @@ implement_primative_number!(u32);
 implement_primative_number!(i32);
 implement_primative_number!(u64);
 implement_primative_number!(i64);
+implement_primative_number!(usize);
+implement_primative_number!(isize);
 #[cfg(feature = "RUSTC_VERSION_GE_1_26")]
 implement_primative_number!(u128);
 #[cfg(feature = "RUSTC_VERSION_GE_1_26")]

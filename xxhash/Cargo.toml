@@ -13,7 +13,8 @@ twox-hash = { version = "=1.5.0", default_features = false }
 getrandom = { version = "=0.1.14", default_features = false }
 
 [features]
-default = []
+default = ["std"]
+std = ["feature_macros/std", "twox-hash/std", "getrandom/std"]
 ub_unreachable = ["feature_macros/ub_unreachable"]
 unbounded = ["feature_macros/unbounded"]
 branch_hints = ["feature_macros/branch_hints"]

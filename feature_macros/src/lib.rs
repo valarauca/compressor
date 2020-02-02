@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "RUSTC_NIGHTLY", feature(core_intrinsics))]
 
 /// inconceivable is a macro which closely parallels `std::unreachable`, or `std::panic`.
@@ -17,9 +17,14 @@
 macro_rules! inconceivable {
     () => {
         {
-        #[cfg(all(feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        #[cfg(all(not(feature="std"), feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
         {
             unsafe{ ::core::hint::unreachable_unchecked() }
+        }
+
+        #[cfg(all(feature = "std", feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        {
+            unsafe{ ::std::hint::unreachable_unchecked() }
         }
 
 
@@ -31,9 +36,14 @@ macro_rules! inconceivable {
     };
     ($msg: expr) => {
         {
-        #[cfg(all(feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        #[cfg(all(not(feature="std"), feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
         {
             unsafe{ ::core::hint::unreachable_unchecked() }
+        }
+
+        #[cfg(all(feature = "std", feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        {
+            unsafe{ ::std::hint::unreachable_unchecked() }
         }
 
 
@@ -45,9 +55,14 @@ macro_rules! inconceivable {
     };
     ($msg: expr,) => {
         {
-        #[cfg(all(feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        #[cfg(all(not(feature="std"), feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
         {
             unsafe{ ::core::hint::unreachable_unchecked() }
+        }
+
+        #[cfg(all(feature = "std", feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        {
+            unsafe{ ::std::hint::unreachable_unchecked() }
         }
 
 
@@ -59,9 +74,14 @@ macro_rules! inconceivable {
     };
     ($fmt: expr, $($arg:tt)*) => {
         {
-        #[cfg(all(feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        #[cfg(all(not(feature="std"), feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
         {
             unsafe{ ::core::hint::unreachable_unchecked() }
+        }
+
+        #[cfg(all(feature = "std", feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27"))]
+        {
+            unsafe{ ::std::hint::unreachable_unchecked() }
         }
 
         #[cfg(not(all(feature = "ub_unreachable", feature = "RUSTC_VERSION_GE_1_27")))]
@@ -80,3 +100,6 @@ pub mod intrinsics;
 
 /// intrinsics for cache prefetch hinting
 pub mod prefetch;
+
+/// mem handles the normal `std::`/`core::` imports.
+pub mod mem;

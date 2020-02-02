@@ -23,20 +23,33 @@ pub fn prefetch_buffer<T: Sized>(buffer: &[T]) {
 #[inline(always)]
 pub fn prefetch<T>(ptr: *const T) {
     #[cfg(all(
+        not(feature = "std"),
         target_arch = "x86_64",
         feature = "prefetch_hints",
         not(feature = "RUSTC_NIGHTLY")
     ))]
     {
+        #[cfg(not(feature = "std"))]
         use core::arch::x86_64::{_mm_prefetch, _MM_HINT_T2};
+
+        #[cfg(feature = "std")]
+        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T2};
 
         // no need to check if sse is active/un-active. SSE (and SSE2) are part of x86_64's ABI
         unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_T2) };
     }
 
-    #[cfg(all(feature = "RUSTC_NIGHTLY", feature = "prefetch_hints"))]
+    #[cfg(all(
+        not(feature = "std"),
+        feature = "RUSTC_NIGHTLY",
+        feature = "prefetch_hints"
+    ))]
     {
-        ::core::intrinsics::prefetch_read_data(ptr, 0);
+        unsafe { ::core::intrinsics::prefetch_read_data(ptr, 0) };
+    }
+    #[cfg(all(feature = "std", feature = "RUSTC_NIGHTLY", feature = "prefetch_hints"))]
+    {
+        unsafe { ::std::intrinsics::prefetch_read_data(ptr, 0) };
     }
 }
 
@@ -44,7 +57,8 @@ pub fn prefetch<T>(ptr: *const T) {
 /// of items within a cache line. YMMV with alignment.
 #[inline(always)]
 fn item_per_cache_line<T: Sized>() -> usize {
-    use core::mem::size_of;
+    use super::mem::*;
+
     // cache lines are 64bytes.
     // The author is aware they are not sometimes for example:
     // - https://www.mono-project.com/news/2016/09/12/arm64-icache/
