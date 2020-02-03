@@ -10,3 +10,4 @@ extern crate getrandom;
 extern crate twox_hash;
 
 pub mod bits32;
+pub mod bits64;

@@ -74,6 +74,121 @@ where
         Num { data: data }
     }
 }
+impl<T> From<&T> for Num<T>
+where
+    T: Copy
+        + Clone
+        + PartialEq
+        + Eq
+        + PartialOrd
+        + Ord
+        + Hash
+        + Default
+        + Shr<i32, Output = T>
+        + Shl<i32, Output = T>
+        + BitXor<T, Output = T>
+        + BitAnd<T, Output = T>
+        + BitOr<T, Output = T>
+        + Not
+        + BitAndAssign
+        + BitOrAssign
+        + BitXorAssign
+        + ShrAssign<i32>
+        + ShlAssign<i32>,
+{
+    #[inline(always)]
+    fn from(data: &T) -> Num<T> {
+        Num { data: *data }
+    }
+}
+impl<T> From<&Num<T>> for Num<T>
+where
+    Self: PrimativeNumber<Primative = T>,
+    T: Copy
+        + Clone
+        + PartialEq
+        + Eq
+        + PartialOrd
+        + Ord
+        + Hash
+        + Default
+        + Shr<i32, Output = T>
+        + Shl<i32, Output = T>
+        + BitXor<T, Output = T>
+        + BitAnd<T, Output = T>
+        + BitOr<T, Output = T>
+        + Not
+        + BitAndAssign
+        + BitOrAssign
+        + BitXorAssign
+        + ShrAssign<i32>
+        + ShlAssign<i32>,
+{
+    #[inline(always)]
+    fn from(data: &Num<T>) -> Num<T> {
+        Num {
+            data: <Self as PrimativeNumber>::inner(*data),
+        }
+    }
+}
+impl<T> From<&&T> for Num<T>
+where
+    T: Copy
+        + Clone
+        + PartialEq
+        + Eq
+        + PartialOrd
+        + Ord
+        + Hash
+        + Default
+        + Shr<i32, Output = T>
+        + Shl<i32, Output = T>
+        + BitXor<T, Output = T>
+        + BitAnd<T, Output = T>
+        + BitOr<T, Output = T>
+        + Not
+        + BitAndAssign
+        + BitOrAssign
+        + BitXorAssign
+        + ShrAssign<i32>
+        + ShlAssign<i32>,
+{
+    #[inline(always)]
+    fn from(data: &&T) -> Num<T> {
+        Num { data: **data }
+    }
+}
+impl<T> From<&&Num<T>> for Num<T>
+where
+    Self: PrimativeNumber<Primative = T>,
+    T: Copy
+        + Clone
+        + PartialEq
+        + Eq
+        + PartialOrd
+        + Ord
+        + Hash
+        + Default
+        + Shr<i32, Output = T>
+        + Shl<i32, Output = T>
+        + BitXor<T, Output = T>
+        + BitAnd<T, Output = T>
+        + BitOr<T, Output = T>
+        + Not
+        + BitAndAssign
+        + BitOrAssign
+        + BitXorAssign
+        + ShrAssign<i32>
+        + ShlAssign<i32>,
+{
+    #[inline(always)]
+    fn from(data: &&Num<T>) -> Num<T> {
+        Num {
+            data: <Num<T> as PrimativeNumber>::inner(**data),
+        }
+    }
+}
+
 macro_rules! implement_num_core_op_trait {
     ($trait_norm: ident => $func_norm: ident ; $trait_asg: ident => $func_asg: ident) => {
         impl<T> $trait_norm for Num<T>

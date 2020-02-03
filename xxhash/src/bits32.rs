@@ -40,7 +40,7 @@ fn xxh32_avalanche(seed: Num<u32>) -> Num<u32> {
 /// finalize works on the last <15 bytes of the buffer
 #[inline(always)]
 fn xxh32_finalize(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
-    // this works on the last <3 bytes of the buffer
+    /// this works on the last <3 bytes of the buffer
     #[inline(always)]
     fn inner_most_fold(hash: Num<u32>, arg: &u8) -> Num<u32> {
         let ingest = (*arg as u32).wrapping_mul(PRIME32_5);
@@ -49,7 +49,7 @@ fn xxh32_finalize(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
             .wrapping_mul(PRIME32_1)
     }
 
-    // this is invoked on the last few 4 byte wide chunks
+    /// this is invoked on the last few 4 byte wide chunks
     #[inline(always)]
     fn fold_chunk(hash: Num<u32>, arg: &[u8]) -> Num<u32> {
         let length = arg.len();
@@ -132,6 +132,7 @@ fn xxh32_reference(seed: Num<u32>, buffer: &[u8]) -> Num<u32> {
     };
     // weird modulus operation to get the last ~15 bytes of the buffer
     let last = buffer.len() & (<Num<usize> as PrimativeNumber>::max() - 15usize);
+    debug_assert!(last <= buffer.len());
     xxh32_finalize(hash, &buffer[last..])
 }
 
