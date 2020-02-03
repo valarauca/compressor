@@ -30,7 +30,6 @@ fn bench_local_streaming(c: &mut Criterion) {
     }
 }
 
-/*
 fn bench_external_reference(c: &mut Criterion) {
     let mut data = [0u8;32786];
     getrandom(data.as_mut()).unwrap();
@@ -64,6 +63,5 @@ fn bench_local_reference(c: &mut Criterion) {
         });
     }
 }
-*/
-criterion_group!(benches, bench_local_streaming); //bench_external_reference, bench_local_reference);
+criterion_group!(benches, bench_local_streaming, bench_external_reference, bench_local_reference);
 criterion_main!(benches);

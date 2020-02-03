@@ -21,7 +21,13 @@ unbounded = ["feature_macros/unbounded"]
 branch_hints = ["feature_macros/branch_hints"]
 prefetch_hints = ["feature_macros/prefetch_hints"]
 
+
 [[bench]]
-name = "xxhash32"
-path = "bench/xxhash32.rs"
+name = "xxhash64_reference"
+path = "bench/64/local_64_reference.rs"
+harness = false
+
+[[bench]]
+name = "xxhash64_streaming"
+path = "bench/64/local_64_streaming.rs"
 harness = false
