@@ -1,4 +1,4 @@
-use super::feature_macros::intrinsics::hint_likely;
+use super::feature_macros::intrinsics::{hint_likely, memcp};
 use super::feature_macros::numbers::{Num, PrimativeNumber};
 use super::feature_macros::prefetch::prefetch_buffer;
 
@@ -6,6 +6,11 @@ use super::feature_macros::prefetch::prefetch_buffer;
 use core::hash::Hasher;
 #[cfg(feature = "std")]
 use std::hash::Hasher;
+
+#[cfg(not(feature = "std"))]
+use core::slice::from_raw_parts;
+#[cfg(feature = "std")]
+use std::slice::from_raw_parts;
 
 const PRIME64_1: u64 = 11400714785074694791u64;
 const PRIME64_2: u64 = 14029467366897019727u64;
@@ -153,11 +158,11 @@ fn xxh64_reference(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
 
 #[derive(Clone)]
 pub struct XXHash64 {
+    interior_buffer: [u8; 32],
+    state: [Num<u64>; 4],
+    seed: Num<u64>,
     interior_length: usize,
     total_length: usize,
-    seed: Num<u64>,
-    state: [Num<u64>; 4],
-    interior_buffer: [u8; 32],
 }
 impl Default for XXHash64 {
     fn default() -> XXHash64 {
@@ -212,80 +217,101 @@ impl XXHash64 {
         .inner()
     }
 
-    /// all the conditional branching.
-    #[inline(always)]
-    fn maybe_consume<'a>(&mut self, slice: &'a [u8]) -> Option<&'a [u8]> {
-        if self.is_empty() {
-            Some(slice)
-        } else {
-            if slice.len() <= self.avaliable() {
-                self.copy_into_internal(slice);
-                None
-            } else {
-                let (flush_internal, remaining) = slice.split_at(self.avaliable());
-                self.copy_into_internal(flush_internal);
-                if remaining.is_empty() {
-                    None
-                } else {
-                    Some(remaining)
-                }
-            }
-        }
-    }
-
     #[inline]
     fn consume<'a>(&mut self, arg: &'a [u8]) {
-        for process in self.maybe_consume(arg) {
-            for chunk in process.chunks(32) {
-                if hint_likely(chunk.len() == 32) {
-                    for (arr,state) in chunk.chunks(8).zip(self.state.iter_mut()) {
-                        *state = xxh64_round(*state, Num::<u64>::read_value_le(arr));
-                    }
-                    self.total_length += 32;
-                } else {
-                    self.copy_into_internal(chunk);
-                }
+        let mut arg = arg;
+
+        // check if we need to do slow path stuff
+        // to clean up internal state
+        if self.interior_length > 0 {
+            // short inputs
+            if (self.interior_length + arg.len()) < 32 {
+                unsafe {
+                    memcp(
+                        arg.as_ptr(),
+                        self.interior_buffer
+                            .as_mut_ptr()
+                            .offset(self.interior_length as isize),
+                        arg.len(),
+                    )
+                };
+                self.interior_length += arg.len();
+                // almost immediate return
+                return;
+            } else {
+                // longer inputs
+                let chop_off = 32 - self.interior_length;
+
+                // take a window of the remaining data
+                arg = unsafe {
+                    memcp(
+                        arg.as_ptr(),
+                        self.interior_buffer
+                            .as_mut_ptr()
+                            .offset(self.interior_length as isize),
+                        chop_off as usize,
+                    );
+                    from_raw_parts(arg.as_ptr().offset(chop_off as isize), arg.len() - chop_off)
+                };
+
+                // cleanup internal state
+                self.state[0] = xxh64_round(
+                    self.state[0].clone(),
+                    Num::<u64>::read_value_le(&self.interior_buffer[0..8]),
+                );
+                self.state[1] = xxh64_round(
+                    self.state[1].clone(),
+                    Num::<u64>::read_value_le(&self.interior_buffer[8..16]),
+                );
+                self.state[2] = xxh64_round(
+                    self.state[2].clone(),
+                    Num::<u64>::read_value_le(&self.interior_buffer[16..24]),
+                );
+                self.state[3] = xxh64_round(
+                    self.state[3].clone(),
+                    Num::<u64>::read_value_le(&self.interior_buffer[24..32]),
+                );
+                self.total_length += 32;
+                self.interior_length = 0;
+
+                // this nows falls throught to the orginal logic
             }
         }
-    }
 
-    /// handle messy small writes to the internal buffer.
-    #[inline(always)]
-    fn copy_into_internal(&mut self, slice: &[u8]) {
-        debug_assert!(self.interior_length < 32);
-        debug_assert!(slice.len() <= 32);
-        debug_assert!((self.interior_length + slice.len()) <= 32);
+        let last_align = arg.len() & (<Num<usize> as PrimativeNumber>::max() - 31);
+        let (nicely_aligned, messy) = arg.split_at(last_align);
 
-        if slice.is_empty() {
-            return;
+        if nicely_aligned.len() > 0 {
+            let mut v1 = self.state[0];
+            let mut v2 = self.state[1];
+            let mut v3 = self.state[2];
+            let mut v4 = self.state[3];
+            let mut processed = 0;
+
+            for chunk in nicely_aligned.chunks(32) {
+                v1 = xxh64_round(v1, Num::<u64>::read_value_le(&chunk[0..8]));
+                v2 = xxh64_round(v2, Num::<u64>::read_value_le(&chunk[8..16]));
+                v3 = xxh64_round(v3, Num::<u64>::read_value_le(&chunk[16..24]));
+                v4 = xxh64_round(v4, Num::<u64>::read_value_le(&chunk[24..32]));
+                processed += 1;
+            }
+            self.total_length += processed * 32;
+            self.state[0] = v1;
+            self.state[1] = v2;
+            self.state[2] = v3;
+            self.state[3] = v4;
         }
 
-        let start = self.interior_length;
-        let term = start + slice.len();
-        (&mut self.interior_buffer[start..term]).copy_from_slice(slice);
-
-        self.interior_length += slice.len();
-        self.total_length += slice.len();
-
-        if self.interior_length == 32 {
-            self.state[0] = xxh64_round(
-                self.state[0],
-                Num::<u64>::read_value_le(&self.interior_buffer[0..8]),
-            );
-            self.state[1] = xxh64_round(
-                self.state[1],
-                Num::<u64>::read_value_le(&self.interior_buffer[8..16]),
-            );
-            self.state[2] = xxh64_round(
-                self.state[2],
-                Num::<u64>::read_value_le(&self.interior_buffer[16..24]),
-            );
-            self.state[3] = xxh64_round(
-                self.state[3],
-                Num::<u64>::read_value_le(&self.interior_buffer[12..32]),
-            );
-            self.interior_length = 0;
-        }
+        // since we cleanuped our internal buffer at the start
+        // we can shove what ever remains into the final buffer here
+        unsafe {
+            memcp(
+                messy.as_ptr(),
+                self.interior_buffer.as_mut_ptr(),
+                messy.len(),
+            )
+        };
+        self.interior_length += messy.len();
     }
 
     #[inline]
