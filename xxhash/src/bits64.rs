@@ -120,11 +120,12 @@ fn xxh64_reference(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
     #[inline(always)]
     fn big_chunk(v: [Num<u64>; 4], chunk: &[u8]) -> [Num<u64>; 4] {
         debug_assert!(chunk.len() == 32);
+        let n = dereference_32(chunk);
         [
-            interior_round(v[0], &chunk[0..8]),
-            interior_round(v[1], &chunk[8..16]),
-            interior_round(v[2], &chunk[16..24]),
-            interior_round(v[3], &chunk[24..32]),
+            xxh64_round(v[0], n[0]),
+            xxh64_round(v[1], n[1]),
+            xxh64_round(v[2], n[2]),
+            xxh64_round(v[3], n[3]),
         ]
     }
 
@@ -289,10 +290,11 @@ impl XXHash64 {
             let mut processed = 0;
 
             for chunk in nicely_aligned.chunks(32) {
-                v1 = xxh64_round(v1, Num::<u64>::read_value_le(&chunk[0..8]));
-                v2 = xxh64_round(v2, Num::<u64>::read_value_le(&chunk[8..16]));
-                v3 = xxh64_round(v3, Num::<u64>::read_value_le(&chunk[16..24]));
-                v4 = xxh64_round(v4, Num::<u64>::read_value_le(&chunk[24..32]));
+                let [n1, n2, n3, n4] = dereference_32(chunk);
+                v1 = xxh64_round(v1, n1);
+                v2 = xxh64_round(v2, n2);
+                v3 = xxh64_round(v3, n3);
+                v4 = xxh64_round(v4, n4);
                 processed += 1;
             }
             self.total_length += processed * 32;
@@ -358,4 +360,24 @@ fn xxh64_sanity_test() {
     let reference_output = xxh64_reference(Num::from(seed), core_data.as_ref()).inner();
     assert_eq!(reference_output, baseline_output);
     assert_eq!(local_output, reference_output);
+}
+
+#[inline(always)]
+fn dereference_32(arg: &[u8]) -> [u64; 4] {
+    #[cfg(not(feature = "std"))]
+    use core::ptr::read_unaligned;
+    #[cfg(feature = "std")]
+    use std::ptr::read_unaligned;
+
+    debug_assert!(arg.len() == 32);
+    let mut output: [u64; 4] =
+        unsafe { read_unaligned::<[u64; 4]>(arg.as_ptr() as *const [u64; 4]) };
+
+    #[cfg(target_endian = "big")]
+    {
+        for ptr in output.iter_mut() {
+            *ptr = ptr.clone().byte_swap();
+        }
+    }
+    output
 }
