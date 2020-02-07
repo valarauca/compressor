@@ -1,6 +1,5 @@
 use super::feature_macros::intrinsics::{hint_likely, memcp};
 use super::feature_macros::numbers::{Num, PrimativeNumber};
-use super::feature_macros::prefetch::prefetch_buffer;
 
 #[cfg(not(feature = "std"))]
 use core::hash::Hasher;
@@ -85,12 +84,13 @@ fn xxh64_finalize(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
         debug_assert!(length <= 8 && length > 0);
         if length == 8 {
             let ingest = Num::read_value_le(arg)
+                .wrapping_mul(PRIME64_2)
                 .rotate_left(31)
                 .wrapping_mul(PRIME64_1);
             (hash ^ ingest)
                 .rotate_left(27)
                 .wrapping_mul(PRIME64_1)
-                .wrapping_mul(PRIME64_4)
+                .wrapping_add(PRIME64_4)
         } else {
             arg.chunks(4).fold(hash, fold_chunk_4_wide)
         }
@@ -109,13 +109,6 @@ pub fn xxhash64_reference(seed: u64, buffer: &[u8]) -> u64 {
 }
 
 fn xxh64_reference(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
-    /// interor round performs the mixin logic
-    #[inline(always)]
-    fn interior_round(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
-        debug_assert!(buffer.len() == 8);
-        xxh64_round(seed, Num::read_value_le(buffer))
-    }
-
     /// this processes our large chunks
     #[inline(always)]
     fn big_chunk(v: [Num<u64>; 4], chunk: &[u8]) -> [Num<u64>; 4] {
@@ -136,7 +129,6 @@ fn xxh64_reference(seed: Num<u64>, buffer: &[u8]) -> Num<u64> {
             seed,
             seed.wrapping_sub(PRIME64_1),
         ];
-
         let output = buffer
             .chunks(32)
             .filter(|chunk| hint_likely(chunk.len() == 32))
@@ -193,10 +185,15 @@ impl XXHash64 {
         }
     }
 
+    #[inline]
+    fn total_length(&self) -> usize {
+        (self.total_length + self.interior_length) as usize
+    }
+
     fn perform_finish(&self) -> u64 {
         debug_assert!(self.interior_length <= 32);
 
-        let hash = if self.total_length >= 32 {
+        let hash = if self.total_length() >= 32 {
             let output = self.state[0]
                 .rotate_left(1)
                 .wrapping_add(self.state[1].rotate_left(7))
@@ -210,7 +207,7 @@ impl XXHash64 {
         } else {
             self.seed.wrapping_add(PRIME64_5)
         };
-        let hash = hash.wrapping_add(self.total_length as u64);
+        let hash = hash.wrapping_add(self.total_length() as u64);
         xxh64_finalize(
             Num::<u64>::from(hash),
             &self.interior_buffer[0..self.interior_length],
@@ -315,16 +312,6 @@ impl XXHash64 {
         };
         self.interior_length += messy.len();
     }
-
-    #[inline]
-    fn avaliable(&self) -> usize {
-        32 - self.interior_length
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.interior_length == 0
-    }
 }
 impl Hasher for XXHash64 {
     #[inline(never)]
@@ -337,31 +324,7 @@ impl Hasher for XXHash64 {
     }
 }
 
-#[test]
-fn xxh64_sanity_test() {
-    use super::getrandom::getrandom;
-    use super::twox_hash::XxHash64;
-
-    let mut seed = [0u8; 8];
-    getrandom(seed.as_mut()).unwrap();
-    let seed = u64::from_le_bytes(seed);
-
-    let mut core_data = [0u8; 4096];
-    getrandom(core_data.as_mut()).unwrap();
-
-    let mut baseline_hasher = XxHash64::with_seed(seed);
-    baseline_hasher.write(core_data.as_ref());
-    let baseline_output = baseline_hasher.finish();
-
-    let mut local_hasher = XXHash64::with_seed(seed);
-    local_hasher.write(core_data.as_ref());
-    let local_output = local_hasher.finish();
-
-    let reference_output = xxh64_reference(Num::from(seed), core_data.as_ref()).inner();
-    assert_eq!(reference_output, baseline_output);
-    assert_eq!(local_output, reference_output);
-}
-
+/// handles the semantics of a "fast load"
 #[inline(always)]
 fn dereference_32(arg: &[u8]) -> [u64; 4] {
     #[cfg(not(feature = "std"))]
@@ -370,6 +333,8 @@ fn dereference_32(arg: &[u8]) -> [u64; 4] {
     use std::ptr::read_unaligned;
 
     debug_assert!(arg.len() == 32);
+
+    #[allow(unused_mut)]
     let mut output: [u64; 4] =
         unsafe { read_unaligned::<[u64; 4]>(arg.as_ptr() as *const [u64; 4]) };
 
@@ -380,4 +345,112 @@ fn dereference_32(arg: &[u8]) -> [u64; 4] {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::super::getrandom::getrandom;
+    use super::super::twox_hash::XxHash64;
+    use super::{xxhash64_reference, XXHash64};
+
+    #[cfg(not(feature = "std"))]
+    use core::hash::Hasher;
+    #[cfg(feature = "std")]
+    use std::hash::Hasher;
+
+    #[test]
+    fn xxh64_sanity_test() {
+        let mut seed = [0u8; 8];
+        getrandom(seed.as_mut()).unwrap();
+        let seed = u64::from_le_bytes(seed);
+
+        let mut core_data = [0u8; 4096];
+        getrandom(core_data.as_mut()).unwrap();
+
+        let mut baseline_hasher = XxHash64::with_seed(seed);
+        baseline_hasher.write(core_data.as_ref());
+        let baseline_output = baseline_hasher.finish();
+
+        let mut local_hasher = XXHash64::with_seed(seed);
+        local_hasher.write(core_data.as_ref());
+        let local_output = local_hasher.finish();
+
+        let reference_output = xxhash64_reference(seed, core_data.as_ref());
+        assert_eq!(reference_output, baseline_output);
+        assert_eq!(local_output, reference_output);
+
+        // ensure checking doesn't effect the result
+        let mut hasher2 = XXHash64::with_seed(seed);
+        for chunk in core_data.chunks(4) {
+            hasher2.write(chunk);
+        }
+        assert_eq!(local_output, hasher2.finish());
+        let mut hasher3 = XXHash64::with_seed(seed);
+        for chunk in core_data.chunks(1) {
+            hasher3.write(chunk);
+        }
+        assert_eq!(local_output, hasher3.finish());
+    }
+
+    #[test]
+    fn xxh64_empty_test() {
+        let seed = 0;
+        let dut = &[];
+        let expected = 0xEF46DB3751D8E999u64;
+
+        let mut hasher = XXHash64::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish());
+        assert_eq!(expected, xxhash64_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh64_single_byte() {
+        let seed = 0;
+        let dut = &[42u8];
+        let expected = 0x0A9EDECEBEB03AE4u64;
+
+        let mut hasher = XXHash64::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, xxhash64_reference(seed, dut));
+        assert_eq!(expected, hasher.finish());
+    }
+
+    #[test]
+    fn xxh64_matches_c() {
+        let seed = 0;
+        let dut = b"Hello, world!\0";
+        assert_eq!(dut.len(), 14);
+        let expected = 0x7B06C531EA43E89Fu64;
+
+        let mut hasher = XXHash64::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish());
+        assert_eq!(expected, xxhash64_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh64_matches_c_different_seed() {
+        let seed = 0xAE0543311B702d91u64;
+        let dut = b"";
+        let expected = 0x4B6A04FCDF7A4672u64;
+
+        let mut hasher = XXHash64::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, xxhash64_reference(seed, dut));
+        assert_eq!(expected, hasher.finish());
+    }
+
+    #[test]
+    fn xxh64_matches_c_different_seed_and_chunks() {
+        let seed = 0xAE0543311B702d91u64;
+        let dut = (0..100).collect::<Vec<u8>>();
+        let expected = 0x567E355E0682E1F1u64;
+
+        let mut hasher = XXHash64::with_seed(seed);
+        hasher.write(&dut);
+        assert_eq!(expected, xxhash64_reference(seed, &dut));
+        assert_eq!(expected, hasher.finish());
+    }
 }

@@ -36,3 +36,20 @@ harness = false
 name = "xxhash64_upstream"
 path = "bench/64/upstream_64_reference.rs"
 harness = false
+
+[[bench]]
+name = "xxhash32_reference"
+path = "bench/32/local_32_reference.rs"
+harness = false
+
+[[bench]]
+name = "xxhash32_streaming"
+path = "bench/32/local_32_streaming.rs"
+harness = false
+
+[[bench]]
+name = "xxhash32_upstream"
+path = "bench/32/upstream_32_reference.rs"
+harness = false
+
+

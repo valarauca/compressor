@@ -313,56 +313,121 @@ impl Hasher for XXHash32 {
     }
 }
 
-/// This test mostly exists to ensure that our implementation is correct
-/// we're using a 3^rd party crate as a reference.
-#[test]
-fn xxh32_sanity_test() {
-    use super::getrandom::getrandom;
-    use super::twox_hash::XxHash32;
+#[cfg(test)]
+mod test {
 
-    let mut seed = [0u8; 4];
-    getrandom(seed.as_mut()).unwrap();
-    let seed = u32::from_le_bytes(seed);
-    let mut core_data = [0u8; 4096];
-    getrandom(core_data.as_mut()).unwrap();
+    use super::super::getrandom::getrandom;
+    use super::super::twox_hash::XxHash32;
+    use super::{xxhash32_reference, XXHash32};
 
-    // produce a reference output
-    let mut baseline_hasher = XxHash32::with_seed(seed);
-    baseline_hasher.write(core_data.as_ref());
-    let baseline_output = baseline_hasher.finish() as u32;
+    #[cfg(not(feature = "std"))]
+    use core::hash::Hasher;
+    #[cfg(feature = "std")]
+    use std::hash::Hasher;
 
-    // internal streaming impl
-    let mut streaming_hasher = XXHash32::with_seed(seed);
-    streaming_hasher.write(core_data.as_ref());
-    let streaming_output = streaming_hasher.finish() as u32;
+    /// This test mostly exists to ensure that our implementation is correct
+    /// we're using a 3^rd party crate as a reference.
+    #[test]
+    fn xxh32_sanity_test() {
+        let mut seed = [0u8; 4];
+        getrandom(seed.as_mut()).unwrap();
+        let seed = u32::from_le_bytes(seed);
+        let mut core_data = [0u8; 4096];
+        getrandom(core_data.as_mut()).unwrap();
 
-    // internal reference impl
-    let reference_output = xxh32_reference(Num::from(seed), core_data.as_ref()).inner();
+        // produce a reference output
+        let mut baseline_hasher = XxHash32::with_seed(seed);
+        baseline_hasher.write(core_data.as_ref());
+        let baseline_output = baseline_hasher.finish() as u32;
 
-    assert_eq!(baseline_output, reference_output);
-    assert_eq!(streaming_output, reference_output);
-    assert_eq!(baseline_output, streaming_output);
-}
+        // internal streaming impl
+        let mut streaming_hasher = XXHash32::with_seed(seed);
+        streaming_hasher.write(core_data.as_ref());
+        let streaming_output = streaming_hasher.finish() as u32;
 
-#[test]
-fn xxh32_matches_c_for_empty_inputs() {
+        // internal reference impl
+        let reference_output = xxhash32_reference(seed, core_data.as_ref());
+
+        assert_eq!(baseline_output, reference_output);
+        assert_eq!(streaming_output, reference_output);
+        assert_eq!(baseline_output, streaming_output);
+    }
+
     /*
      * credit to: Jake Goulding & Collaborators of twox_hash, copyright
      * unchallenged.
      *
      */
-    let mut hasher = XXHash32::with_seed(0);
-    hasher.write(&[]);
-    let expected = 0x02CC5D05u32;
-    assert_eq!(expected, hasher.finish() as u32);
-    assert_eq!(expected, xxh32_reference(Num::from(0), &[]).inner());
-}
 
-#[test]
-fn xxh32_matches_c_for_single_byte() {
-    let mut hasher = XXHash32::with_seed(0);
-    hasher.write(&[42]);
-    let expected = 0xE0FE705Fu32;
-    assert_eq!(expected, hasher.finish() as u32);
-    assert_eq!(expected, xxh32_reference(Num::from(0), &[42]).inner());
+    #[test]
+    fn xxh32_matches_c_for_empty_inputs() {
+        let seed = 0;
+        let dut = &[];
+        let expected = 0x02CC5D05u32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh32_matches_c_for_single_byte() {
+        let seed = 0;
+        let dut = &[42u8];
+        let expected = 0xE0FE705Fu32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh32_matches_multiple_bytes() {
+        let seed = 0;
+        let dut = b"Hello, world!\0";
+        let expected = 0x9E5E7E93u32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh32_matches_chunks() {
+        let seed = 0;
+        let dut = (0..100).collect::<Vec<u8>>();
+        let expected = 0x7F89BA44u32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(&dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, &dut));
+    }
+
+    #[test]
+    fn xxh32_matches_empty_with_different_seed() {
+        let seed = 0x42C91977u32;
+        let dut = b"";
+        let expected = 0xD6BF8459u32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, dut));
+    }
+
+    #[test]
+    fn xxh32_matches_chunks_with_different_seed() {
+        let seed = 0x42C91977u32;
+        let dut = (0..100).collect::<Vec<u8>>();
+        let expected = 0x6D2F6C17u32;
+
+        let mut hasher = XXHash32::with_seed(seed);
+        hasher.write(&dut);
+        assert_eq!(expected, hasher.finish() as u32);
+        assert_eq!(expected, xxhash32_reference(seed, &dut));
+    }
 }
