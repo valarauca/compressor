@@ -2,5 +2,6 @@
 [workspace]
 members = [
     "xxhash",
-    "feature_macros"
+    "feature_macros",
+    "fuzz",
 ]

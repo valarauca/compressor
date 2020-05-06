@@ -1,0 +1,23 @@
+[package]
+name = "fuzz"
+version = "0.1.0"
+authors = ["William Cody Laeder <codylaeder@gmail.com>"]
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies.xxhash]
+path = "../xxhash"
+default_features = true
+
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+[[bin]]
+name = "fuzz_xxhash32_reference"
+path = "fuzz_xxhash32_reference.rs"
+
+[[bin]]
+name = "fuzz_xxhash32_stream"
+path = "fuzz_xxhash32_stream.rs"
