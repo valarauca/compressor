@@ -101,5 +101,5 @@ pub mod intrinsics;
 /// intrinsics for cache prefetch hinting
 pub mod prefetch;
 
-/// mem handles the normal `std::`/`core::` imports.
-pub mod mem;
+/// handles re-exposing `std::`/`core::` items depending on the compiler version.
+pub mod unstd;

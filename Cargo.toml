@@ -1,6 +1,7 @@
 
 [workspace]
 members = [
+    "crc",
     "xxhash",
     "feature_macros"
 ]

@@ -57,7 +57,7 @@ pub fn prefetch<T>(ptr: *const T) {
 /// of items within a cache line. YMMV with alignment.
 #[inline(always)]
 fn item_per_cache_line<T: Sized>() -> usize {
-    use super::mem::*;
+    use super::unstd::mem::size_of;
 
     // cache lines are 64bytes.
     // The author is aware they are not sometimes for example:

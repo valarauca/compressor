@@ -1,128 +1,125 @@
-#[cfg(not(feature = "std"))]
-use core::hash::Hash;
-#[cfg(feature = "std")]
-use std::hash::Hash;
+use super::unstd::hash::Hash;
+use super::unstd::mem::{align_of, size_of, transmute};
+use super::unstd::ops::*;
+use super::unstd::ptr::{read, read_unaligned};
 
-#[cfg(not(feature = "std"))]
-use core::ops::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
-    ShrAssign,
-};
-#[cfg(not(feature = "std"))]
-use core::ptr::{read, read_unaligned};
-#[cfg(feature = "std")]
-use std::ops::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
-    ShrAssign,
-};
-#[cfg(feature = "std")]
-use std::ptr::{read, read_unaligned};
-
-use super::mem::{align_of, size_of, transmute};
+/// These are the traits every basic number implemetns
+pub trait BasicNumber:
+    Copy
+    + Clone
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
+    + Hash
+    + Default
+    + Add<Self, Output = Self>
+    + AddAssign<Self>
+    + BitAnd<Self, Output = Self>
+    + BitAndAssign<Self>
+    + BitOr<Self, Output = Self>
+    + BitOrAssign<Self>
+    + BitXor<Self, Output = Self>
+    + BitXorAssign<Self>
+    + Div<Self, Output = Self>
+    + DivAssign<Self>
+    + Mul<Self, Output = Self>
+    + MulAssign<Self>
+    + Not<Output = Self>
+    + Rem<Self, Output = Self>
+    + RemAssign<Self>
+    + Shl<i8, Output = Self>
+    + Shl<u8, Output = Self>
+    + Shl<i16, Output = Self>
+    + Shl<u16, Output = Self>
+    + Shl<i32, Output = Self>
+    + Shl<u32, Output = Self>
+    + Shl<i64, Output = Self>
+    + Shl<u64, Output = Self>
+    + Shl<i64, Output = Self>
+    + Shl<isize, Output = Self>
+    + Shl<usize, Output = Self>
+    + ShlAssign<i8>
+    + ShlAssign<u8>
+    + ShlAssign<i16>
+    + ShlAssign<u16>
+    + ShlAssign<i32>
+    + ShlAssign<u32>
+    + ShlAssign<i64>
+    + ShlAssign<u64>
+    + ShlAssign<i64>
+    + ShlAssign<isize>
+    + ShlAssign<usize>
+    + Shr<i8, Output = Self>
+    + Shr<u8, Output = Self>
+    + Shr<i16, Output = Self>
+    + Shr<u16, Output = Self>
+    + Shr<i32, Output = Self>
+    + Shr<u32, Output = Self>
+    + Shr<i64, Output = Self>
+    + Shr<u64, Output = Self>
+    + Shr<i64, Output = Self>
+    + Shr<isize, Output = Self>
+    + Shr<usize, Output = Self>
+    + ShrAssign<i8>
+    + ShrAssign<u8>
+    + ShrAssign<i16>
+    + ShrAssign<u16>
+    + ShrAssign<i32>
+    + ShrAssign<u32>
+    + ShrAssign<i64>
+    + ShrAssign<u64>
+    + ShrAssign<i64>
+    + ShrAssign<isize>
+    + ShrAssign<usize>
+    + Sub<Self, Output = Self>
+    + SubAssign<Self>
+{
+}
+impl BasicNumber for i8 {}
+impl BasicNumber for u8 {}
+impl BasicNumber for i16 {}
+impl BasicNumber for u16 {}
+impl BasicNumber for i32 {}
+impl BasicNumber for u32 {}
+impl BasicNumber for i64 {}
+impl BasicNumber for u64 {}
+impl BasicNumber for usize {}
+impl BasicNumber for isize {}
 
 /// Num wraps a primative value.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Num<T: BasicNumber> {
     data: T,
 }
-
-impl<T> From<T> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
+impl<T: BasicNumber> Default for Num<T> {
+    #[inline(always)]
+    fn default() -> Num<T> {
+        Num::from(T::default())
+    }
+}
+impl<T: BasicNumber> Not for Num<T> {
+    type Output = Self;
+    #[inline(always)]
+    fn not(self) -> Self {
+        Num::from(<T as Not>::not(self.data))
+    }
+}
+impl<T: BasicNumber> From<T> for Num<T> {
     #[inline(always)]
     fn from(data: T) -> Num<T> {
         Num { data: data }
     }
 }
-impl<T> From<&T> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
+impl<T: BasicNumber> From<&T> for Num<T> {
     #[inline(always)]
     fn from(data: &T) -> Num<T> {
         Num { data: *data }
     }
 }
-impl<T> From<&Num<T>> for Num<T>
+impl<T: BasicNumber> From<&Num<T>> for Num<T>
 where
     Self: PrimativeNumber<Primative = T>,
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
 {
     #[inline(always)]
     fn from(data: &Num<T>) -> Num<T> {
@@ -131,55 +128,15 @@ where
         }
     }
 }
-impl<T> From<&&T> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
+impl<T: BasicNumber> From<&&T> for Num<T> {
     #[inline(always)]
     fn from(data: &&T) -> Num<T> {
         Num { data: **data }
     }
 }
-impl<T> From<&&Num<T>> for Num<T>
+impl<T: BasicNumber> From<&&Num<T>> for Num<T>
 where
     Self: PrimativeNumber<Primative = T>,
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
 {
     #[inline(always)]
     fn from(data: &&Num<T>) -> Num<T> {
@@ -189,276 +146,128 @@ where
     }
 }
 
-macro_rules! implement_num_core_op_trait {
-    ($trait_norm: ident => $func_norm: ident ; $trait_asg: ident => $func_asg: ident) => {
-        impl<T> $trait_norm for Num<T>
-        where
-            T: Copy
-                + Clone
-                + PartialEq
-                + Eq
-                + PartialOrd
-                + Ord
-                + Hash
-                + Default
-                + Shr<i32, Output = T>
-                + Shl<i32, Output = T>
-                + BitXor<T, Output = T>
-                + BitAnd<T, Output = T>
-                + BitOr<T, Output = T>
-                + Not
-                + BitAndAssign
-                + BitOrAssign
-                + BitXorAssign
-                + ShrAssign<i32>
-                + ShlAssign<i32>,
-        {
+macro_rules! implement_simple {
+    ($(($trait_name: ident => $func_name: ident)),* $(,)*) => {
+        $(
+        impl<T: BasicNumber> $trait_name<Self> for Num<T> {
             type Output = Self;
-
             #[inline(always)]
-            fn $func_norm(self, other: Self) -> Self {
-                Num::from(self.data.$func_norm(other.data))
+            fn $func_name(self, other: Self) -> Self {
+                Num::from(<T as $trait_name>::$func_name(self.data, other.data))
             }
         }
-        impl<T> $trait_norm<T> for Num<T>
-        where
-            T: Copy
-                + Clone
-                + PartialEq
-                + Eq
-                + PartialOrd
-                + Ord
-                + Hash
-                + Default
-                + Shr<i32, Output = T>
-                + Shl<i32, Output = T>
-                + BitXor<T, Output = T>
-                + BitAnd<T, Output = T>
-                + BitOr<T, Output = T>
-                + Not
-                + BitAndAssign
-                + BitOrAssign
-                + BitXorAssign
-                + ShrAssign<i32>
-                + ShlAssign<i32>,
-        {
-            type Output = Self;
-
-            #[inline(always)]
-            fn $func_norm(self, other: T) -> Self {
-                let x: T = self.data.$func_norm(other);
-                Num::from(x)
-            }
-        }
-        impl<T> $trait_asg for Num<T>
-        where
-            T: Copy
-                + Clone
-                + PartialEq
-                + Eq
-                + PartialOrd
-                + Ord
-                + Hash
-                + Default
-                + Shr<i32, Output = T>
-                + Shl<i32, Output = T>
-                + BitXor<T, Output = T>
-                + BitAnd<T, Output = T>
-                + BitOr<T, Output = T>
-                + Not
-                + BitAndAssign
-                + BitOrAssign
-                + BitXorAssign
-                + ShrAssign<i32>
-                + ShlAssign<i32>,
-        {
-            #[inline(always)]
-            fn $func_asg(&mut self, other: Self) {
-                self.data.$func_asg(other.data);
-            }
-        }
-        impl<T> $trait_asg<T> for Num<T>
-        where
-            T: Copy
-                + Clone
-                + PartialEq
-                + Eq
-                + PartialOrd
-                + Ord
-                + Hash
-                + Default
-                + Shr<i32, Output = T>
-                + Shl<i32, Output = T>
-                + BitXor<T, Output = T>
-                + BitAnd<T, Output = T>
-                + BitOr<T, Output = T>
-                + Not
-                + BitAndAssign
-                + BitOrAssign
-                + BitXorAssign
-                + ShrAssign<i32>
-                + ShlAssign<i32>,
-        {
-            #[inline(always)]
-            fn $func_asg(&mut self, other: T) {
-                self.data.$func_asg(other);
-            }
-        }
-    };
-}
-
-impl<T> Shr<i32> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
-    type Output = Self;
-
-    #[inline(always)]
-    fn shr(self, other: i32) -> Self {
-        Num::from(self.data.shr(other))
-    }
-}
-impl<T> ShrAssign<i32> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = T>
-        + Shl<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>,
-{
-    #[inline(always)]
-    fn shr_assign(&mut self, other: i32) {
-        self.data.shr_assign(other)
+        )*
     }
 }
 
-impl<T> Shl<i32> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shl<i32, Output = T>
-        + Shr<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShlAssign<i32>
-        + ShrAssign<i32>,
-{
-    type Output = Self;
-
-    #[inline(always)]
-    fn shl(self, other: i32) -> Self {
-        Num::from(self.data.shl(other))
-    }
+implement_simple! {
+    (Add => add),
+    (BitAnd => bitand),
+    (BitOr => bitor),
+    (BitXor => bitxor),
+    (Div => div),
+    (Mul => mul),
+    (Rem => rem),
+    (Sub => sub),
 }
-impl<T> ShlAssign<i32> for Num<T>
-where
-    T: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shl<i32, Output = T>
-        + Shr<i32, Output = T>
-        + BitXor<T, Output = T>
-        + BitAnd<T, Output = T>
-        + BitOr<T, Output = T>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShlAssign<i32>
-        + ShrAssign<i32>,
-{
-    #[inline(always)]
-    fn shl_assign(&mut self, other: i32) {
-        self.data.shl_assign(other)
+
+macro_rules! implement_assign {
+    ($(($trait_name: ident => $func_name: ident)),* $(,)*) => {
+        $(
+        impl<T: BasicNumber> $trait_name<Self> for Num<T> {
+            #[inline(always)]
+            fn $func_name(&mut self, other: Self) {
+                <T as $trait_name>::$func_name(&mut self.data, other.data);
+            }
+        }
+        )*
     }
 }
 
-implement_num_core_op_trait!(BitXor => bitxor; BitXorAssign => bitxor_assign);
-implement_num_core_op_trait!(BitAnd => bitand; BitAndAssign => bitand_assign);
-implement_num_core_op_trait!(BitOr => bitor; BitOrAssign => bitor_assign);
+implement_assign! {
+    (AddAssign => add_assign),
+    (BitAndAssign => bitand_assign),
+    (BitOrAssign => bitor_assign),
+    (BitXorAssign => bitxor_assign),
+    (DivAssign => div_assign),
+    (MulAssign => mul_assign),
+    (RemAssign => rem_assign),
+    (SubAssign => sub_assign),
+}
+
+macro_rules! implement_shifts {
+    ( $(($trait_name: ident => $func_name: ident => { $($kind: ty),* })),* $(,)*) => {
+        $(
+            $(
+                impl<T: BasicNumber> $trait_name<$kind> for Num<T> {
+                    type Output = Self;
+                    #[inline(always)]
+                    fn $func_name(self, rhs: $kind) -> Self {
+                        Num::from(<T as $trait_name<$kind>>::$func_name(self.data, rhs))
+                    }
+                }
+            )*
+        )*
+    }
+}
+implement_shifts! {
+    (Shr => shr => { u8, i8, u16, i16, u32, i32, u64, i64, usize, isize }),
+    (Shl => shl => { u8, i8, u16, i16, u32, i32, u64, i64, usize, isize }),
+}
+
+macro_rules! implement_shift_assign {
+    ( $(($trait_name: ident => $func_name: ident => { $($kind: ty),* })),* $(,)*) => {
+        $(
+            $(
+                impl<T: BasicNumber> $trait_name<$kind> for Num<T> {
+                    #[inline(always)]
+                    fn $func_name(&mut self, rhs: $kind) {
+                        <T as $trait_name<$kind>>::$func_name(&mut self.data, rhs)
+                    }
+                }
+            )*
+        )*
+    }
+}
+implement_shift_assign! {
+    (ShrAssign => shr_assign => { u8, i8, u16, i16, u32, i32, u64, i64, usize, isize }),
+    (ShlAssign => shl_assign => { u8, i8, u16, i16, u32, i32, u64, i64, usize, isize }),
+}
+
+macro_rules! implement_num_from_boilerplate {
+    ( $(($base_kind: ty => { $($from_kind: ty),* })),* $(,)* ) => {
+        $(
+            $(
+                impl From<$from_kind> for Num<$base_kind> {
+                    #[inline(always)]
+                    fn from(arg: $from_kind) -> Num<$base_kind> {
+                        Num::from(arg as $base_kind)
+                    }
+                }
+            )*
+        )*
+    }
+}
+
+implement_num_from_boilerplate! {
+    (u8 => { i8, u16, i16, u32, i32, u64, i64, usize, isize }),
+    (i8 => { u8, u16, i16, u32, i32, u64, i64, usize, isize }),
+    (i16 => { u8, i8, u16, u32, i32, u64, i64, usize, isize }),
+    (u16 => { u8, i8, i16, u32, i32, u64, i64, usize, isize }),
+    (i32 => { u8, i8, u16, i16, u32, u64, i64, usize, isize }),
+    (u32 => { u8, i8, u16, i16, i32, u64, i64, usize, isize }),
+    (i64 => { u8, i8, u16, i16, u32, i32, u64, usize, isize }),
+    (u64 => { u8, i8, u16, i16, u32, i32, i64, usize, isize }),
+    (isize => { u8, i8, u16, i16, u32, i32, u64, i64, usize }),
+    (usize => { u8, i8, u16, i16, u32, i32, u64, i64, isize }),
+}
 
 /// PrimativeNumber is a general trait that has a load of requirements
 /// to effectively ensure it can only be implemented on primative
 /// integer values.
-pub trait PrimativeNumber:
-    Clone
-    + Copy
-    + PartialEq
-    + Eq
-    + PartialOrd
-    + Ord
-    + Hash
-    + Default
-    + From<<Self as PrimativeNumber>::Primative>
-{
+pub trait PrimativeNumber: BasicNumber + From<<Self as PrimativeNumber>::Primative> {
     /// The interger type we're encapsulating
-    type Primative: Copy
-        + Clone
-        + PartialEq
-        + Eq
-        + PartialOrd
-        + Ord
-        + Hash
-        + Default
-        + Shr<i32, Output = Self::Primative>
-        + Shl<i32, Output = Self::Primative>
-        + BitXor<Self::Primative, Output = Self::Primative>
-        + BitAnd<Self::Primative, Output = Self::Primative>
-        + BitOr<Self::Primative, Output = Self::Primative>
-        + Not
-        + BitAndAssign
-        + BitOrAssign
-        + BitXorAssign
-        + ShrAssign<i32>
-        + ShlAssign<i32>;
+    type Primative: BasicNumber;
 
     fn max() -> Self::Primative;
     fn min() -> Self::Primative;
@@ -612,6 +421,7 @@ fn screw_alignment_load<T: Copy>(arg: &[u8]) -> T {
 
 macro_rules! implement_primative_number {
     ($kind: ident) => {
+        impl BasicNumber for Num<$kind> {}
         impl PrimativeNumber for Num<$kind> {
             type Primative = $kind;
 
