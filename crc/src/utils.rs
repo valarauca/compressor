@@ -3,20 +3,6 @@ use feature_macros::numbers::*;
 #[allow(dead_code)]
 use feature_macros::unstd::ops::*;
 
-/// What type of calculation are we performing
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Calc {
-    Normal,
-    Reverse,
-    Compat,
-}
-impl Default for Calc {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
 /// Trivial type which acts like a table
 pub trait CRCTable<Prim: BasicNumber>: Index<u8, Output = Prim> {}
 
@@ -33,33 +19,41 @@ where
     Prim: Shr<Prim, Output = Prim>,
     Prim: BitXor<Prim, Output = Prim>,
 {
+
+    // CRC Params
+    const INITIAL: Prim;
+    const REFOUT: bool;
+    const XOROUT: Prim;
+
     const TABLE: TableKind;
     const NORMAL_ACC_SHR: Prim;
     const NORMAL_ACC_SHL: Prim;
-    const REVERSE_ACC_SHR: Prim;
-    const COMPAT_ACC_SHR: Prim;
 
-    fn update(value: Prim, bytes: &[u8], calc: &Calc) -> Prim {
-        match calc {
-            &Calc::Normal => bytes.iter().fold(value, |accum: Prim, item: &u8| -> Prim {
-                accum.shl(Self::NORMAL_ACC_SHL).bitxor(Self::index_table(
-                    Self::deref_to_prim(item).bitxor(accum.shr(Self::NORMAL_ACC_SHR)),
-                ))
-            }),
-            &Calc::Reverse => bytes.iter().fold(value, |accum: Prim, item: &u8| -> Prim {
-                accum
-                    .shr(Self::REVERSE_ACC_SHR)
-                    .bitxor(Self::index_table(accum.bitxor(Self::deref_to_prim(item))))
-            }),
-            &Calc::Compat => bytes
-                .iter()
-                .fold(value.not(), |accum: Prim, item: &u8| -> Prim {
-                    accum
-                        .shr(Self::COMPAT_ACC_SHR)
-                        .bitxor(Self::index_table(accum.bitxor(Self::deref_to_prim(item))))
-                })
-                .not(),
-        }
+    fn process(bytes: &[u8]) -> Prim {
+
+        // setup the initial accumulator value
+	let init: Prim = if Self::REFOUT {
+		Self::INITIAL.not()
+	} else {
+		Self::INITIAL
+	};
+
+        // run the algorithm
+        let output: Prim = bytes.iter().fold(init, |accum: Prim, item: &u8| -> Prim {
+            accum.shl(Self::NORMAL_ACC_SHL).bitxor(Self::index_table(
+                Self::deref_to_prim(item).bitxor(accum.shr(Self::NORMAL_ACC_SHR)),
+            ))
+        });
+
+	// we may need to reflect the value _again_
+        let pre_xor: Prim = if Self::REFOUT {
+		output.not()
+	} else {
+		output
+	};
+
+	// final xor
+	pre_xor.xor(Self::XOROUT)
     }
 
     #[inline(always)]
