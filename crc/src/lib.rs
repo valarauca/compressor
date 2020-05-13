@@ -4,4 +4,5 @@
 #[macro_use]
 extern crate feature_macros;
 
+mod table;
 mod utils;
